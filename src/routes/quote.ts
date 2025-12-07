@@ -116,36 +116,129 @@ This quote was generated automatically from the Valor Heating & Cooling website.
 Submitted: ${new Date().toLocaleString()}
 `
 
-    const recipientEmail = process.env.QUOTE_RECIPIENT_EMAIL || 'admin@valorhvacma.com'
+    const adminEmail = process.env.QUOTE_RECIPIENT_EMAIL || 'admin@valorhvacma.com'
+    const customerEmail = quoteData.email
     
-    // Try to send email using Resend if API key is configured
+    // Use onboarding@resend.dev if the from email is not verified
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+    
+    // If using a gmail.com or other unverified domain, use Resend's test domain
+    const safeFromEmail = fromEmail.includes('@gmail.com') || fromEmail.includes('@yahoo.com') || fromEmail.includes('@outlook.com')
+      ? 'onboarding@resend.dev'
+      : fromEmail
+    
+    // Try to send emails using Resend if API key is configured
     if (resend && resendApiKey) {
       try {
-        // Use onboarding@resend.dev if the from email is not verified
-        const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'
+        const emailPromises = []
         
-        // If using a gmail.com or other unverified domain, use Resend's test domain
-        const safeFromEmail = fromEmail.includes('@gmail.com') || fromEmail.includes('@yahoo.com') || fromEmail.includes('@outlook.com')
-          ? 'onboarding@resend.dev'
-          : fromEmail
-        
-        const { data, error } = await resend.emails.send({
-          from: safeFromEmail,
-          to: recipientEmail,
-          subject: emailSubject,
-          text: emailBody,
-        })
-
-        if (error) {
-          throw new Error(`Resend error: ${JSON.stringify(error)}`)
-        } else {
-          return res.json({ 
-            success: true, 
-            message: 'Quote submitted and email sent successfully',
-            emailId: data?.id
+        // 1. Send detailed email to admin
+        const adminEmailSubject = `New Quote Request - ${quoteData.firstName} ${quoteData.lastName}`
+        emailPromises.push(
+          resend.emails.send({
+            from: safeFromEmail,
+            to: adminEmail,
+            subject: adminEmailSubject,
+            text: emailBody,
           })
+        )
+        
+        // 2. Send customer-friendly email to customer
+        const customerEmailSubject = `Your Heat Pump Quote from Valor Heating & Cooling`
+        const customerEmailBody = `
+Hello ${quoteData.firstName},
+
+Thank you for requesting a quote from Valor Heating & Cooling!
+
+YOUR PERSONALIZED QUOTE
+========================
+
+Total Installation Cost: $${quoteData.quote?.totalPrice?.toLocaleString() || 'N/A'}
+Estimated Annual Savings: $${quoteData.quote?.estimatedSavings?.toLocaleString() || 'N/A'}
+
+This quote includes available Mass Save® rebates of up to $16,000, which means you could have $0 out-of-pocket cost for your heat pump installation!
+
+NEXT STEPS
+----------
+Our team will review your quote and contact you within 24 hours to discuss:
+• Available rebates and financing options
+• Installation timeline
+• System specifications
+• Any questions you may have
+
+PROPERTY DETAILS
+---------------
+Address: ${quoteData.address}
+${quoteData.city}, ${quoteData.state} ${quoteData.zipCode}
+
+Property Type: ${quoteData.propertyType || 'N/A'}
+Square Footage: ${quoteData.squareFootage || 'N/A'}
+
+${quoteData.quote?.totalPrice ? `
+ESTIMATED BREAKDOWN
+-------------------
+Total System Cost: $${quoteData.quote.totalPrice.toLocaleString()}
+Mass Save® Rebates: Up to $16,000
+Your Out-of-Pocket: Potentially $0
+
+*Final pricing subject to on-site assessment and available rebates at time of installation.
+` : ''}
+
+QUESTIONS?
+---------
+Call us anytime: (508) 714-1327
+Email: admin@valorhvacma.com
+Available 24/7
+
+We're here to help you make the switch to energy-efficient heating and cooling!
+
+Best regards,
+The Valor Heating & Cooling Team
+
+---
+#1 Rated Disabled Veteran Owned Heat Pump Installers in Massachusetts
+Licensed & Insured | 24/7 Emergency Service
+        `.trim()
+        
+        emailPromises.push(
+          resend.emails.send({
+            from: safeFromEmail,
+            to: customerEmail,
+            subject: customerEmailSubject,
+            text: customerEmailBody,
+          })
+        )
+        
+        // Send both emails
+        const results = await Promise.allSettled(emailPromises)
+        
+        // Check if any emails failed
+        const failed = results.filter(r => r.status === 'rejected')
+        if (failed.length > 0) {
+          console.error('Some emails failed to send:', failed)
         }
+        
+        // Check for Resend errors
+        const errors = results
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+          .map(r => r.value.error)
+          .filter(Boolean)
+        
+        if (errors.length > 0) {
+          throw new Error(`Resend errors: ${JSON.stringify(errors)}`)
+        }
+        
+        const successCount = results.filter(r => r.status === 'fulfilled').length
+        return res.json({ 
+          success: true, 
+          message: `Quote submitted and ${successCount} email(s) sent successfully`,
+          emailsSent: {
+            admin: results[0].status === 'fulfilled',
+            customer: results[1].status === 'fulfilled'
+          }
+        })
       } catch (resendError: any) {
+        console.error('Email sending error:', resendError)
         return res.status(500).json({
           success: false,
           error: resendError.message || 'Failed to send email via Resend',
