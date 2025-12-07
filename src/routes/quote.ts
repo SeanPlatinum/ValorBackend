@@ -130,18 +130,14 @@ Submitted: ${new Date().toLocaleString()}
     // Try to send emails using Resend if API key is configured
     if (resend && resendApiKey) {
       try {
-        const emailPromises = []
-        
         // 1. Send detailed email to admin
         const adminEmailSubject = `New Quote Request - ${quoteData.firstName} ${quoteData.lastName}`
-        emailPromises.push(
-          resend.emails.send({
-            from: safeFromEmail,
-            to: adminEmail,
-            subject: adminEmailSubject,
-            text: emailBody,
-          })
-        )
+        const adminEmailPromise = resend.emails.send({
+          from: safeFromEmail,
+          to: adminEmail,
+          subject: adminEmailSubject,
+          text: emailBody,
+        })
         
         // 2. Send customer-friendly email to customer
         const customerEmailSubject = `Your Heat Pump Quote from Valor Heating & Cooling`
@@ -200,41 +196,43 @@ The Valor Heating & Cooling Team
 Licensed & Insured | 24/7 Emergency Service
         `.trim()
         
-        emailPromises.push(
-          resend.emails.send({
-            from: safeFromEmail,
-            to: customerEmail,
-            subject: customerEmailSubject,
-            text: customerEmailBody,
-          })
-        )
+        const customerEmailPromise = resend.emails.send({
+          from: safeFromEmail,
+          to: customerEmail,
+          subject: customerEmailSubject,
+          text: customerEmailBody,
+        })
         
         // Send both emails
-        const results = await Promise.allSettled(emailPromises)
+        const [adminResult, customerResult] = await Promise.allSettled([
+          adminEmailPromise,
+          customerEmailPromise
+        ])
         
-        // Check if any emails failed
-        const failed = results.filter(r => r.status === 'rejected')
-        if (failed.length > 0) {
-          console.error('Some emails failed to send:', failed)
+        // Check results
+        const adminSuccess = adminResult.status === 'fulfilled' && !adminResult.value.error
+        const customerSuccess = customerResult.status === 'fulfilled' && !customerResult.value.error
+        
+        if (!adminSuccess) {
+          console.error('Admin email failed:', adminResult.status === 'rejected' ? adminResult.reason : adminResult.value.error)
         }
         
-        // Check for Resend errors
-        const errors = results
-          .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-          .map(r => r.value.error)
-          .filter(Boolean)
-        
-        if (errors.length > 0) {
-          throw new Error(`Resend errors: ${JSON.stringify(errors)}`)
+        if (!customerSuccess) {
+          console.error('Customer email failed:', customerResult.status === 'rejected' ? customerResult.reason : customerResult.value.error)
         }
         
-        const successCount = results.filter(r => r.status === 'fulfilled').length
+        // If both failed, throw error
+        if (!adminSuccess && !customerSuccess) {
+          throw new Error('Both emails failed to send')
+        }
+        
+        const successCount = (adminSuccess ? 1 : 0) + (customerSuccess ? 1 : 0)
         return res.json({ 
           success: true, 
           message: `Quote submitted and ${successCount} email(s) sent successfully`,
           emailsSent: {
-            admin: results[0].status === 'fulfilled',
-            customer: results[1].status === 'fulfilled'
+            admin: adminSuccess,
+            customer: customerSuccess
           }
         })
       } catch (resendError: any) {
