@@ -1,4 +1,4 @@
-import express from 'express'
+import express, { Request, Response } from 'express'
 import * as cheerio from 'cheerio'
 import puppeteer from 'puppeteer'
 
@@ -22,7 +22,7 @@ interface PropertyInfo {
   yearBuilt?: string
 }
 
-router.post('/info', async (req, res) => {
+router.post('/info', async (req: Request, res: Response) => {
   let browser: any = null
   
   try {
@@ -60,12 +60,12 @@ router.post('/info', async (req, res) => {
     await page.waitForSelector('select', { timeout: 10000 })
     
     // Find the dropdowns
-    const selects = await page.$$eval('select', (selects) => {
-      return selects.map((select, index) => ({
+    const selects = await page.$$eval('select', (selects: HTMLSelectElement[]) => {
+      return selects.map((select: HTMLSelectElement, index: number) => ({
         index,
         id: select.id,
         name: select.name,
-        options: Array.from(select.options).map(opt => ({
+        options: Array.from(select.options).map((opt: HTMLOptionElement) => ({
           value: opt.value,
           text: opt.text.trim()
         }))
@@ -126,7 +126,7 @@ router.post('/info', async (req, res) => {
     
     try {
       await page.waitForFunction(
-        (selector) => {
+        (selector: string) => {
           const select = document.querySelector(selector) as HTMLSelectElement
           return select && select.options.length > 1
         },
@@ -144,7 +144,7 @@ router.post('/info', async (req, res) => {
     
     const updatedStreetOptions = await page.$eval(
       streetSelector,
-      (select) => Array.from((select as HTMLSelectElement).options).map(opt => ({
+      (select: HTMLSelectElement) => Array.from(select.options).map((opt: HTMLOptionElement) => ({
         value: opt.value,
         text: opt.text.trim()
       }))
@@ -168,7 +168,7 @@ router.post('/info', async (req, res) => {
     
     try {
       await page.waitForFunction(
-        (selector) => {
+        (selector: string) => {
           const select = document.querySelector(selector) as HTMLSelectElement
           return select && select.options.length > 1
         },
@@ -186,7 +186,7 @@ router.post('/info', async (req, res) => {
     
     const updatedAddressOptions = await page.$eval(
       addressSelector,
-      (select) => Array.from((select as HTMLSelectElement).options).map(opt => ({
+      (select: HTMLSelectElement) => Array.from(select.options).map((opt: HTMLOptionElement) => ({
         value: opt.value,
         text: opt.text.trim()
       }))

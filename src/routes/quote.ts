@@ -37,7 +37,7 @@ interface QuoteData {
   }
 }
 
-router.post('/submit', async (req, res) => {
+router.post('/submit', async (req: express.Request, res: express.Response) => {
   try {
     const quoteData: QuoteData = req.body
 
